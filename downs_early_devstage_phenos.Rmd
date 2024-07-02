@@ -1,0 +1,134 @@
+---
+title: "Downs Syndrome Early Developmental Stage Phenotypes"
+output: html_document
+date: "2024-07-02"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+**First we need some R libraries:**
+
+```{r cars}
+#remotes::install_github("https://github.com/monarch-initiative/monarchr", ref = "engines")
+
+suppressMessages({
+	library(monarchr)
+	library(ggraph)
+	library(stringr) # for str_wrap
+	library(tidygraph) # activate() etc.
+})
+```
+
+
+**MONDO:0019249 is the generic Mucopolysaccharidosis (MPS), which has many subtypes. Let's get all its subtypes, and all the phenotypes directly connected to any of those subtypes.**
+
+
+**HSAPDV:0000000 is "life cycle stage" - all of the life stages are subtypes of this? And it doesn't appear they are well-organized:
+
+```{r life_stages, echo=TRUE}
+dev_stages <- monarch_engine() |>
+	fetch_nodes(query_ids = "HSAPDV:0000000") |>
+	expand(predicates = "biolink:subclass_of", direction = "in", transitive = TRUE)
+
+ggraph(dev_stages, layout = "sugiyama") +
+	geom_edge_link(aes(color = predicate),
+								 arrow = arrow(length = unit(2, 'mm'), type = "closed"),
+								 end_cap = circle(2.5, 'mm')) +
+	geom_node_point(aes(color = pcategory),
+									size = 3) +
+	geom_node_label(aes(label = str_wrap(name, 20)),
+									size = 2,
+									repel = TRUE,
+									check_overlap = TRUE,
+									fill = "#FFFFFF88")
+
+dev_stages
+
+```
+
+Anyway, let's find all of the descendants of DS, their phenotypes, and any connections to life stages of any of those:
+
+
+```{r mps_phenos, echo=TRUE}
+downs <- monarch_engine() |>
+	fetch_nodes(query_ids = "MONDO:0008608") |> # Down
+	expand(predicates = "biolink:subclass_of", direction = "in", transitive = TRUE) |>
+	expand(result_categories = "biolink:PhenotypicFeature") |>
+	expand(result_categories = "biolink:LifeStage")
+	
+
+downs
+```
+
+Nada. Let's find out what these life stages *are* connected to.
+
+```{r echo=TRUE}
+stages_expanded <- dev_stages |>
+	expand()
+
+stages_expanded
+
+ggraph(stages_expanded, layout = "sugiyama") +
+	geom_edge_link(aes(color = predicate),
+								 arrow = arrow(length = unit(2, 'mm'), type = "closed"),
+								 end_cap = circle(2.5, 'mm')) +
+	geom_node_point(aes(color = pcategory),
+									size = 3) +
+	geom_node_label(aes(label = str_wrap(name, 20)),
+									size = 2,
+									repel = TRUE,
+									check_overlap = TRUE,
+									fill = "#FFFFFF88")
+```
+
+Ok, `biolink:related_to` seems to be of interest here. We have a lot of related-to associations between
+the developmental stages, and altogether these are related-to just three diseases (juvenile, young, and late-onset Parkinsons). 
+Let's look at just the hierarchy within this graph, dropping the unecessary sublass info cluttering the graph.
+
+
+```{r echo=TRUE}
+stages_expanded_related_only <- stages_expanded |>
+	activate(edges) |>
+	filter(predicate == "biolink:related_to")
+
+p <- ggraph(stages_expanded_related_only, layout = "sugiyama") +
+	geom_edge_link(aes(color = predicate),
+								 arrow = arrow(length = unit(2, 'mm'), type = "closed"),
+								 end_cap = circle(2.5, 'mm')) +
+	geom_node_point(aes(x=x,y=y,color = pcategory),
+									size = 3) +
+	geom_node_label(aes(label = str_wrap(name, 20)),
+									size = 2,
+									repel = TRUE,
+									check_overlap = TRUE,
+									fill = "#FFFFFF88")
+p
+```
+
+Ok... that's a bit better; there are a bunch of stages still cluttering this up, of the form "X year-old stage", "X month-old stage", and "Carnegie stage X". Let's drop those too.
+
+```{r echo=TRUE}
+stages_expanded_related_only <- stages_expanded |>
+	activate(edges) |>
+	filter(predicate == "biolink:related_to") |>
+	activate(nodes) |>
+	filter(!str_detect(name, "Carnegie") & !str_detect(name, "year-old") & !str_detect(name, "month-old"))
+
+p <- ggraph(stages_expanded_related_only, layout = "sugiyama") +
+	geom_edge_link(aes(color = predicate),
+								 arrow = arrow(length = unit(2, 'mm'), type = "closed"),
+								 end_cap = circle(2.5, 'mm')) +
+	geom_node_point(aes(x=x,y=y,color = pcategory),
+									size = 3) +
+	geom_node_label(aes(label = str_wrap(name, 20)),
+									size = 2,
+									repel = TRUE,
+									check_overlap = TRUE,
+									fill = "#FFFFFF88")
+p
+```
+
+Welp, on zooming in, while there are stages such as adult and pediatric, those are connected via a "related to", so this is not a clean transitive organization like we would expect with subclass-of. This makes it tough to identify sets of stages.
+

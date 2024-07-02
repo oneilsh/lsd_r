@@ -1,0 +1,116 @@
+---
+title: "Downs Syndrome Early Developmental Stage Phenotypes"
+output: html_document
+date: "2024-07-02"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+**First we need some R libraries:**
+
+```{r cars}
+#remotes::install_github("https://github.com/monarch-initiative/monarchr", ref = "engines")
+
+suppressMessages({
+	library(monarchr)
+	library(ggraph)
+	library(stringr) # for str_wrap
+	library(tidygraph) # activate() etc.
+})
+```
+
+
+**MONDO:0019249 is the generic Mucopolysaccharidosis (MPS), which has many subtypes. Let's get all its subtypes, and all the phenotypes directly connected to any of those subtypes.**
+
+Let's start by looking for Alzheimer's. We'll use the search here in R to see what we can see:
+
+```{r echo=TRUE}
+monarch_engine() |>
+	search_nodes("Alzheimer")
+```
+
+There it is, `MONDO:0004975`. Let's get it and all the descendants, and make a quick plot.
+
+
+
+```{r echo=TRUE}
+alz <- monarch_engine() |>
+	fetch_nodes(query_ids = "MONDO:0004975") |> # Down
+	expand(predicates = "biolink:subclass_of", direction = "in", transitive = TRUE)
+
+alz
+
+ggraph(alz, layout = "sugiyama") +
+	geom_edge_link(aes(color = predicate),
+								 arrow = arrow(length = unit(2, 'mm'), type = "closed"),
+								 end_cap = circle(2.5, 'mm')) +
+	geom_node_point(aes(color = pcategory),
+									size = 3) +
+	geom_node_label(aes(label = str_wrap(name, 20)),
+									size = 2,
+									repel = TRUE,
+									check_overlap = TRUE,
+									fill = "#FFFFFF88")
+
+```
+
+Cool. Let's summarize the neighborhood in this graph to see how many phenotypes etc. are connected.
+
+```{r echo=TRUE}
+alz |> summarize_neighborhood(summarize = "nodes")
+alz |> summarize_neighborhood(summarize = "edges")
+```
+
+Ok, 85 phenotypes, 17 genes, and 16 chemical entities. I wonder if we can find behavioral phenotypes. Let's search:
+
+
+```{r echo=TRUE}
+monarch_engine() |>
+	search_nodes("behavior")
+```
+
+Let's investigate the hierarchy for atypical behavior. We'll get it's descendents and ancestors and look at those separately.
+
+```{r echo=TRUE}
+atypical_behaviors_desc <- monarch_engine() |>
+	fetch_nodes(query_ids = "HP:0000708") |>
+	expand(predicates = "biolink:subclass_of", direction = "in", transitive = TRUE)
+
+atypical_behaviors_desc
+
+atypical_behaviors_anc <- monarch_engine() |>
+	fetch_nodes(query_ids = "HP:0000708") |>
+	expand(predicates = "biolink:subclass_of", direction = "out", transitive = TRUE)
+
+atypical_behaviors_anc
+```
+
+Over 700 atypical behaviors! Not too many ancestors; let's plot them.
+
+```{r echo=TRUE}
+ggraph(atypical_behaviors_anc, layout = "sugiyama") +
+	geom_edge_link(aes(color = predicate),
+								 arrow = arrow(length = unit(2, 'mm'), type = "closed"),
+								 end_cap = circle(2.5, 'mm')) +
+	geom_node_point(aes(color = pcategory),
+									size = 3) +
+	geom_node_label(aes(label = str_wrap(name, 20)),
+									size = 2,
+									repel = TRUE,
+									check_overlap = TRUE,
+									fill = "#FFFFFF88")
+
+```
+
+So there are a few higher-level entities that we might use instead of Atypical behavior - "abnormal behavior" and "Abnormality of mental function." Let's the children of both of those, and find out what they *don't* have in common.
+
+
+```{r echo=TRUE}
+abn <- monarch_engine() |>
+	fetch_nodes(name == "abnormal behavior")
+
+abn
+
+```

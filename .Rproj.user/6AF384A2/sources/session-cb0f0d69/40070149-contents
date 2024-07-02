@@ -52,7 +52,7 @@ shared_phenos <- nodes(mps_phenos) |>
 	inner_join(nodes(immune_phenos))
 
 shared_phenos |>
-	select(pcategory, name) |> 
+	select(pcategory, name, id) |> 
 	as.data.frame()
 ```
 
