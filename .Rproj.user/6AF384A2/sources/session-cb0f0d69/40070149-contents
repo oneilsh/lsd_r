@@ -1,0 +1,83 @@
+---
+title: "Mucopolysaccharidosis Immune-Related Phenotypes"
+output: html_document
+date: "2024-07-02"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+**First we need some R libraries:**
+
+```{r cars}
+#remotes::install_github("https://github.com/monarch-initiative/monarchr", ref = "engines")
+
+suppressMessages({
+	library(monarchr)
+	library(ggraph)
+	library(stringr) # for str_wrap
+	library(tidygraph) # activate() etc.
+})
+```
+
+
+**MONDO:0019249 is the generic Mucopolysaccharidosis (MPS), which has many subtypes. Let's get all its subtypes, and all the phenotypes directly connected to any of those subtypes.**
+
+
+```{r mps_phenos, echo=TRUE}
+mps_phenos <- monarch_engine() |>
+	fetch_nodes(query_ids = "MONDO:0019249") |>
+	expand(predicates = "biolink:subclass_of", direction = "in", transitive = TRUE) |>
+	expand(result_categories = c("biolink:PhenotypicFeature"))
+
+mps_phenos
+```
+
+
+**UPHENO:0002948 is a high-level phenotype, "abnormal immune system." Let's get all of its subtypes. (This query takes a minute or two.)**
+
+```{r immune_phenos, echo=TRUE}
+immune_phenos <- monarch_engine() |>
+	fetch_nodes(query_ids = "UPHENO:0002948") |>
+	expand(predicates = "biolink:subclass_of", direction = "in", transitive = TRUE)
+
+immune_phenos
+```
+
+**Next we get an inner join of these two, which represent all of the MPS phenotypes that are also immune-related. We do this on the nodes data (`tidygraph` supports graph joins, but only full outer).**
+
+```{r shared_phenos, echo=TRUE, warning=FALSE, message=FALSE}
+shared_phenos <- nodes(mps_phenos) |>
+	inner_join(nodes(immune_phenos))
+
+shared_phenos |>
+	select(pcategory, name) |> 
+	as.data.frame()
+```
+
+**Now let's go back to our `mps_phenos` graph, and keep only the nodes that are either a disease (i.e., a type of MPS), or one of the `shared_phenos`:**
+
+```{r mps_immune_phenos, echo=TRUE}
+mps_immune_phenos <- mps_phenos |>
+	activate(nodes) |>
+	filter(pcategory == "biolink:Disease" | id %in% shared_phenos$id)
+
+mps_immune_phenos
+```
+
+**Finally, let's produce a basic plot. The Sugiyama layout is appropriate for hierarchical data, but isn't super pretty, more work is needed in visualization for `monarchr`.**
+
+```{r plot_mps_immune_phenos, echo=TRUE, fig.width=10, warning=FALSE, message=FALSE}
+ggraph(mps_immune_phenos, layout = "sugiyama") +
+	geom_edge_link(aes(color = predicate),
+								 arrow = arrow(length = unit(2, 'mm'), type = "closed"),
+								 end_cap = circle(2.5, 'mm')) +
+	geom_node_point(aes(color = pcategory),
+									size = 3) +
+	geom_node_label(aes(label = str_wrap(name, 20)),
+									size = 2,
+									repel = TRUE,
+									check_overlap = TRUE,
+									fill = "#FFFFFF88")
+```

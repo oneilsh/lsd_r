@@ -1,0 +1,14 @@
+"0","mps_phenos <- monarch_engine() |>"
+"0","	fetch_nodes(query_ids = ""MONDO:0019249"") |>"
+"0","	expand(predicates = ""biolink:subclass_of"", direction = ""in"", transitive = TRUE) |>"
+"0","	expand(result_categories = c(""biolink:PhenotypicFeature""))"
+"0",""
+"0","mps_phenos"
+"1","[38;5;246m# A tbl_graph: 439 nodes and 1127 edges
+[39m"
+"1","[38;5;246m#
+[39m"
+"1","[38;5;246m# A directed acyclic simple graph with 1 component
+[39m"
+"1","[38;5;246m#
+[39m"
