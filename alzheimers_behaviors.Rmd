@@ -22,8 +22,6 @@ suppressMessages({
 ```
 
 
-**MONDO:0019249 is the generic Mucopolysaccharidosis (MPS), which has many subtypes. Let's get all its subtypes, and all the phenotypes directly connected to any of those subtypes.**
-
 Let's start by looking for Alzheimer's. We'll use the search here in R to see what we can see:
 
 ```{r echo=TRUE}
@@ -31,8 +29,7 @@ monarch_engine() |>
 	search_nodes("Alzheimer")
 ```
 
-There it is, `MONDO:0004975`. Let's get it and all the descendants, and make a quick plot.
-
+There it is, `MONDO:0004975`. Let's get it and all the descendants, and make a quick plot. 
 
 
 ```{r echo=TRUE}
@@ -42,18 +39,22 @@ alz <- monarch_engine() |>
 
 alz
 
-ggraph(alz, layout = "sugiyama") +
-	geom_edge_link(aes(color = predicate),
-								 arrow = arrow(length = unit(2, 'mm'), type = "closed"),
-								 end_cap = circle(2.5, 'mm')) +
-	geom_node_point(aes(color = pcategory),
-									size = 3) +
-	geom_node_label(aes(label = str_wrap(name, 20)),
-									size = 2,
-									repel = TRUE,
-									check_overlap = TRUE,
-									fill = "#FFFFFF88")
+quickplot <- function(g) {
+	ggraph(g, layout = "sugiyama") +
+		geom_edge_link(aes(color = predicate),
+									 arrow = arrow(length = unit(2, 'mm'), type = "closed"),
+									 end_cap = circle(2.5, 'mm')) +
+		geom_node_point(aes(color = pcategory),
+										size = 3) +
+		geom_node_label(aes(label = str_wrap(name, 20)),
+										size = 2,
+										repel = TRUE,
+										check_overlap = TRUE,
+										fill = "#FFFFFF88")	
+}
 
+
+quickplot(alz)
 ```
 
 Cool. Let's summarize the neighborhood in this graph to see how many phenotypes etc. are connected.
@@ -63,15 +64,14 @@ alz |> summarize_neighborhood(summarize = "nodes")
 alz |> summarize_neighborhood(summarize = "edges")
 ```
 
-Ok, 85 phenotypes, 17 genes, and 16 chemical entities. I wonder if we can find behavioral phenotypes. Let's search:
-
+Now, let's look for behavior-related entities.
 
 ```{r echo=TRUE}
 monarch_engine() |>
 	search_nodes("behavior")
 ```
 
-Let's investigate the hierarchy for atypical behavior. We'll get it's descendents and ancestors and look at those separately.
+"Atypical behavior" sounds likely. We'll get it's descendents and ancestors and look at those separately.
 
 ```{r echo=TRUE}
 atypical_behaviors_desc <- monarch_engine() |>
@@ -87,30 +87,77 @@ atypical_behaviors_anc <- monarch_engine() |>
 atypical_behaviors_anc
 ```
 
-Over 700 atypical behaviors! Not too many ancestors; let's plot them.
+Over 700 subtypes of atypical behavior, and 26 ancestors; let's plot the latter.
 
 ```{r echo=TRUE}
-ggraph(atypical_behaviors_anc, layout = "sugiyama") +
-	geom_edge_link(aes(color = predicate),
-								 arrow = arrow(length = unit(2, 'mm'), type = "closed"),
-								 end_cap = circle(2.5, 'mm')) +
-	geom_node_point(aes(color = pcategory),
-									size = 3) +
-	geom_node_label(aes(label = str_wrap(name, 20)),
-									size = 2,
-									repel = TRUE,
-									check_overlap = TRUE,
-									fill = "#FFFFFF88")
+quickplot(atypical_behaviors_anc)
 
 ```
 
-So there are a few higher-level entities that we might use instead of Atypical behavior - "abnormal behavior" and "Abnormality of mental function." Let's the children of both of those, and find out what they *don't* have in common.
+So there are a two higher-level entities that we might use instead of Atypical behavior - "abnormal behavior" and "Abnormality of mental function." Let's get the subtypes of both of those, and find out what they *don't* have in common (to see if we should prefer one or the other, or both). First we grab that "abnormal behavior" node from above, and get its complete subtypes.
 
 
 ```{r echo=TRUE}
-abn <- monarch_engine() |>
-	fetch_nodes(name == "abnormal behavior")
-
-abn
-
+atypical_behaviors <- atypical_behaviors_anc |>
+	activate(nodes) |>
+	filter(name == "abnormal behavior") |>
+	expand(predicates = "biolink:subclass_of", direction = "in", transitive = TRUE)
 ```
+
+Next, the complete subtypes for "Abnormality of mental function".
+
+```{r echo=TRUE}
+atypical_mental_functions <- atypical_behaviors_anc |>
+	activate(nodes) |>
+	filter(name == "Abnormality of mental function") |>
+	expand(predicates = "biolink:subclass_of", direction = "in", transitive = TRUE)
+
+atypical_mental_functions
+```
+
+Now use anti-joins on the nodes of each to see the differences:
+
+```{r echo=FALSE}
+# first: what's in atypical behaviors not in atypical mental functions
+nodes(atypical_behaviors) |>
+	anti_join(nodes(atypical_mental_functions))
+
+# what's in atypical mental functions not atypical behaviors
+nodes(atypical_mental_functions) |>
+	anti_join(nodes(atypical_behaviors))
+```
+There are lots (1394) of behaviors of abnormality that are not abnormalities mental function, and fewer (98) mental function abnormalities that are not behavior abnormalities; issues with speech, memory, and cognitive function tend to be the latter. 
+
+Let's consider the union of all of these, and see how they intersect with phenotypes of the Alzheimer's patients above:
+
+```{r}
+all_behavioral_mental_abnormality_ids <- atypical_behaviors |>
+	graph_join(atypical_mental_functions) |>
+	activate(nodes) |>
+	pull(id)
+
+alz_phenos <- alz %>%
+	expand(result_categories = "biolink:PhenotypicFeature")
+
+
+behavioral_mental_alz_phenos <- alz_phenos |>
+	activate(nodes) |>
+	filter(pcategory == "biolink:Disease" | id %in% all_behavioral_mental_abnormality_ids)
+
+behavioral_mental_alz_phenos
+```
+
+A plot and a listing of phenotypes:
+
+```{r echo=TRUE}
+#ggraph(behavioral_mental_alz_phenos, layout = "sugiyama") +
+quickplot(behavioral_mental_alz_phenos)
+
+behavioral_mental_alz_phenos |>
+	activate(nodes) |>
+	filter(pcategory == "biolink:PhenotypicFeature") |>
+	select(id, name)
+```
+
+
+
