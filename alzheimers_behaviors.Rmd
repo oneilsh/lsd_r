@@ -1,16 +1,16 @@
 ---
-title: "Downs Syndrome Early Developmental Stage Phenotypes"
+title: "Alzheimers Behaviorial Phenotypes"
 output: html_document
 date: "2024-07-02"
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, fig.width=10, warning=FALSE, message=FALSE)
 ```
 
 **First we need some R libraries:**
 
-```{r cars}
+```{r}
 #remotes::install_github("https://github.com/monarch-initiative/monarchr", ref = "engines")
 
 suppressMessages({
@@ -29,7 +29,7 @@ monarch_engine() |>
 	search_nodes("Alzheimer")
 ```
 
-There it is, `MONDO:0004975`. Let's get it and all the descendants, and make a quick plot. 
+There it is, `MONDO:0004975`. Let's get it and all the descendants, and make a quick plot. We'll investigate the phenotypes connected to these below.
 
 
 ```{r echo=TRUE}
@@ -61,7 +61,6 @@ Cool. Let's summarize the neighborhood in this graph to see how many phenotypes 
 
 ```{r echo=TRUE}
 alz |> summarize_neighborhood(summarize = "nodes")
-alz |> summarize_neighborhood(summarize = "edges")
 ```
 
 Now, let's look for behavior-related entities.
@@ -71,7 +70,7 @@ monarch_engine() |>
 	search_nodes("behavior")
 ```
 
-"Atypical behavior" sounds likely. We'll get it's descendents and ancestors and look at those separately.
+"Atypical behavior" sounds likely. We'll get it's descendents and ancestors.
 
 ```{r echo=TRUE}
 atypical_behaviors_desc <- monarch_engine() |>
@@ -87,14 +86,15 @@ atypical_behaviors_anc <- monarch_engine() |>
 atypical_behaviors_anc
 ```
 
-Over 700 subtypes of atypical behavior, and 26 ancestors; let's plot the latter.
+Over 700 subtypes of atypical behavior, and 26 ancestors; let's plot the latter to see if there are more general terms we should consider.
+
 
 ```{r echo=TRUE}
 quickplot(atypical_behaviors_anc)
 
 ```
 
-So there are a two higher-level entities that we might use instead of Atypical behavior - "abnormal behavior" and "Abnormality of mental function." Let's get the subtypes of both of those, and find out what they *don't* have in common (to see if we should prefer one or the other, or both). First we grab that "abnormal behavior" node from above, and get its complete subtypes.
+So there are a two higher-level entities that we might use instead of Atypical behavior - "abnormal behavior" and "Abnormality of mental function." Let's get the subtypes of both of those.
 
 
 ```{r echo=TRUE}
@@ -115,48 +115,84 @@ atypical_mental_functions <- atypical_behaviors_anc |>
 atypical_mental_functions
 ```
 
-Now use anti-joins on the nodes of each to see the differences:
-
-```{r echo=FALSE}
-# first: what's in atypical behaviors not in atypical mental functions
-nodes(atypical_behaviors) |>
-	anti_join(nodes(atypical_mental_functions))
-
-# what's in atypical mental functions not atypical behaviors
-nodes(atypical_mental_functions) |>
-	anti_join(nodes(atypical_behaviors))
-```
-There are lots (1394) of behaviors of abnormality that are not abnormalities mental function, and fewer (98) mental function abnormalities that are not behavior abnormalities; issues with speech, memory, and cognitive function tend to be the latter. 
-
-Let's consider the union of all of these, and see how they intersect with phenotypes of the Alzheimer's patients above:
+Let's filter the nodes in these graphs to see what they have in common and uniquely. We'll also add `type` labels to the result for later use, with `both` meaning a phenotype that is a descendant of both Behavioral and Mental abnormalities.
 
 ```{r}
-all_behavioral_mental_abnormality_ids <- atypical_behaviors |>
-	graph_join(atypical_mental_functions) |>
+# first: what's in atypical behaviors not in atypical mental functions
+behavioral_only <- atypical_behaviors |>
 	activate(nodes) |>
-	pull(id)
+	filter(!id %in% nodes(atypical_mental_functions)$id) |>
+	mutate(type = "behavioral")
 
+behavioral_only
+
+
+# what's in atypical mental functions not atypical behaviors
+mental_only <- atypical_mental_functions |>
+	activate(nodes) |>
+	filter(!id %in% nodes(atypical_behaviors)$id) |>
+	mutate(type = "mental")
+
+mental_only
+
+# and what they have in common
+behavioral_and_mental <- atypical_behaviors |>
+	activate(nodes) |>
+	filter(id %in% nodes(atypical_mental_functions)$id) |>
+	mutate(type = "both")
+
+behavioral_and_mental
+```
+Ok, 24 behavioral only, 97 mental only, 724 both.
+
+Let's join them back together (bringing in the labels we defined above). We'll also grab the phenotypes associated with Alzheimers (along with the nodes for Alzheimers itself), then join the two together to bring in the label info. We'll need to then cut this back down to just the nodes that are related to Alzheimers. Finally we'll create a plot of Alzheimers phenotypes labeled by their type.
+
+
+```{r}
+# combine the three sets above into a single table
+all_behavioral_mental_phenos <- behavioral_only |>
+	graph_join(mental_only) |>
+	graph_join(behavioral_and_mental)
+
+# alzheimers diseases and phenos
 alz_phenos <- alz %>%
-	expand(result_categories = "biolink:PhenotypicFeature")
+ 	expand(result_categories = "biolink:PhenotypicFeature")
 
+# all behavioral, mental, and alzheimers phenotypes, labeled
+all_behavioral_mental_alz_phenos <- alz_phenos |>
+	graph_join(all_behavioral_mental_phenos) |>
+	mutate(type = ifelse(is.na(type), "other", type))
 
-behavioral_mental_alz_phenos <- alz_phenos |>
+# finally, let's flush out the nodes that are not in the alz_phenos graph
+alz_phenos_labeled <- all_behavioral_mental_alz_phenos |>
 	activate(nodes) |>
-	filter(pcategory == "biolink:Disease" | id %in% all_behavioral_mental_abnormality_ids)
+	filter(id %in% nodes(alz_phenos)$id)
 
-behavioral_mental_alz_phenos
+alz_phenos_labeled
+
+ggraph(alz_phenos_labeled, layout = "sugiyama") +
+		geom_edge_link(aes(color = predicate),
+									 arrow = arrow(length = unit(2, 'mm'), type = "closed"),
+									 end_cap = circle(2.5, 'mm')) +
+		geom_node_point(aes(color = paste(pcategory, type)),
+										size = 3) +
+		geom_node_label(aes(label = str_wrap(name, 20)),
+										size = 2,
+										repel = TRUE,
+										check_overlap = TRUE,
+										fill = "#FFFFFF88")	
 ```
 
-A plot and a listing of phenotypes:
+And here's a handy list of Alzheimers phenotypes, labeled with type as behavioral, mental, both, or other.
 
 ```{r echo=TRUE}
 #ggraph(behavioral_mental_alz_phenos, layout = "sugiyama") +
-quickplot(behavioral_mental_alz_phenos)
 
-behavioral_mental_alz_phenos |>
+alz_phenos_labeled |>
 	activate(nodes) |>
 	filter(pcategory == "biolink:PhenotypicFeature") |>
-	select(id, name)
+	select(id, name, type, description) |>
+	arrange(type)
 ```
 
 
